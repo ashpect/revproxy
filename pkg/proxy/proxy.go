@@ -1,0 +1,131 @@
+package proxy
+
+import (
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/ashpect/revproxy/pkg/utils"
+)
+
+type Proxy struct {
+	upstream             *url.URL
+	client               *http.Client
+	preserveOriginalHost bool
+}
+
+type Option func(*Proxy)
+
+func WithPreserveOriginalHost(preserve bool) Option {
+	return func(p *Proxy) {
+		p.preserveOriginalHost = preserve
+	}
+}
+
+func WithTimeout(timeout time.Duration) Option {
+	return func(p *Proxy) {
+		p.client.Timeout = timeout
+	}
+}
+
+func WithClient(client *http.Client) Option {
+	return func(p *Proxy) {
+		p.client = client
+	}
+}
+
+func New(upstream *url.URL, opts ...Option) *Proxy {
+	p := &Proxy{
+		upstream: upstream,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		preserveOriginalHost: false,
+	}
+
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	return p
+}
+
+func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	outReq, err := p.buildUpstreamRequest(r)
+	if err != nil {
+		http.Error(w, "bad upstream request", http.StatusInternalServerError)
+		log.Printf("build upstream request error: %v", err)
+		return
+	}
+
+	resp, err := p.client.Do(outReq)
+	if err != nil {
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		log.Printf("upstream request error: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value) // key is case insensitive
+		}
+	}
+
+	w.WriteHeader(resp.StatusCode)
+
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Printf("error copying response body: %v", err)
+	}
+}
+
+func (p *Proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
+	// TESTING
+	utils.PrintRequest(req, "Initial request")
+
+	// Clone keeps method, headers, body, context, etc.
+	ctx := req.Context()
+	outReq := req.Clone(ctx)
+
+	// Rewrite URL to point to upstream
+	outReq.URL.Scheme = p.upstream.Scheme
+	outReq.URL.Host = p.upstream.Host
+	outReq.URL.Path = singleJoiningSlash(p.upstream.Path, req.URL.Path)
+
+	// Required for http.Client.Do
+	outReq.RequestURI = ""
+
+	// Set host header
+	if p.preserveOriginalHost {
+		outReq.Host = req.Host
+	} else {
+		outReq.Host = p.upstream.Host
+	}
+
+	// Add new headers
+	outReq.Header.Set("X-Forwarded-Host", req.Host)
+	outReq.Header.Set("X-Forwarded-Proto", req.URL.Scheme)
+
+	// TESTING
+	utils.PrintRequestWithMetadata(outReq, "Final request", p.upstream, p.preserveOriginalHost)
+
+	return outReq, nil
+}
+
+// singleJoiningSlash joins two paths with exactly one slash between them.
+func singleJoiningSlash(a, b string) string {
+	aslash := strings.HasSuffix(a, "/")
+	bslash := strings.HasPrefix(b, "/")
+
+	switch {
+	case aslash && bslash:
+		return a + b[1:]
+	case !aslash && !bslash:
+		return a + "/" + b
+	default:
+		return a + b
+	}
+}
