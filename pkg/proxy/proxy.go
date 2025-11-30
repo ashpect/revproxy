@@ -3,6 +3,7 @@ package proxy
 import (
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,8 +36,8 @@ func WithClient(client *http.Client) Option {
 
 func New(upstream *url.URL, opts ...Option) *Proxy {
 	p := &Proxy{
-		upstream:             upstream,
-		client:               &http.Client{
+		upstream: upstream,
+		client: &http.Client{
 			Timeout: defaultClientTimeout,
 		},
 		preserveOriginalHost: false,
@@ -64,6 +65,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	removeHopByHopHeaders(resp.Header)
 
 	for key, values := range resp.Header {
 		for _, value := range values {
@@ -101,9 +104,22 @@ func (p *Proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
 		outReq.Host = p.upstream.Host
 	}
 
-	// Add new headers
+	removeHopByHopHeaders(outReq.Header)
+
+	// Add new header
 	outReq.Header.Set("X-Forwarded-Host", req.Host)
-	outReq.Header.Set("X-Forwarded-Proto", req.URL.Scheme)
+	proto := "http"
+	if req.TLS != nil {
+		proto = "https"
+	}
+	outReq.Header.Set("X-Forwarded-Proto", proto)
+
+	s, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		log.Printf("error splitting host port: %v", err)
+	} else {
+		outReq.Header.Set("X-Forwarded-For", s)
+	}
 
 	// TESTING
 	utils.PrintRequestWithMetadata(outReq, "Final request", p.upstream, p.preserveOriginalHost)

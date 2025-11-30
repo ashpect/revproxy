@@ -1,32 +1,40 @@
 ## Basic Plan
 
-### Todo :
-Reverse proxy (no net/http/httputil)
-Timeouts
-Logging
-Error Handling and Graceful Shutdown
-Caching 
-Config
+### Todo (Must to have):
+- [x] Basic reverse proxy (no net/http/httputil)
+- [x] Timeouts
+- [x] Use a custom transport
+- [] Error Handling
+- [] Better logging
+- [] Deployment configs
+- [] Caching
+    - []Implement a builder for cache
+    - []LRU impl + thread safety
+    - []Use LRU with TTL (Support TTL per entry)
+    - []Server initiated cache-control 
+        - []200 GET, cache it
+        - []Cache-control specified
+        - []Cache control setup from config itself
 
-### Todo2 : 
-Support Keep-Alive
-Health check based conn checker (to avoid direct hit + circuit breaker)
-Header sanitization (hop-by-hop and if anything else user defined)
-TLS termination ?
-Compression if > x ?  
-tests
+### Todo (Security)
+- []Global Semaphore
+- []Rate limiting
+- []Max header/body size
 
-### If time allows :
-Connection pooling
-Load balancing
-WebSocket upgrade support
-Global Semaphore ?
+### Todo (Good to have):
+- []Tune connection pooling
+- []Support other hop to hop headers (ws etc)
+- []Health check based conn checker (to avoid direct hit + circuit breaker)
+- []Compression if > x ?  
+- []Tests
+- []Load balancing
 
-### Security : 
-Basic rate limiting
-Prevention of ddos ? 
-Stress testing
+### HTTPS
+- []TLS
 
-### Basic deployment :  
-Dockerfile + README
-k8s yaml and etc
+### Benchmarking
+- [] Benchmarking script that simulates clients for various cases.
+- []The benchmarking script must measure:
+    - []Total failures (e.g., no response received or connection dropped).
+    - []Total throughput of the server.
+    - []Latency percentiles
