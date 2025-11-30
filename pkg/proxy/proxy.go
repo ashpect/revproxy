@@ -11,6 +11,8 @@ import (
 	"github.com/ashpect/revproxy/pkg/utils"
 )
 
+const defaultClientTimeout = 30 * time.Second
+
 type Proxy struct {
 	upstream             *url.URL
 	client               *http.Client
@@ -25,12 +27,6 @@ func WithPreserveOriginalHost(preserve bool) Option {
 	}
 }
 
-func WithTimeout(timeout time.Duration) Option {
-	return func(p *Proxy) {
-		p.client.Timeout = timeout
-	}
-}
-
 func WithClient(client *http.Client) Option {
 	return func(p *Proxy) {
 		p.client = client
@@ -39,9 +35,9 @@ func WithClient(client *http.Client) Option {
 
 func New(upstream *url.URL, opts ...Option) *Proxy {
 	p := &Proxy{
-		upstream: upstream,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
+		upstream:             upstream,
+		client:               &http.Client{
+			Timeout: defaultClientTimeout,
 		},
 		preserveOriginalHost: false,
 	}
