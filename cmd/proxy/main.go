@@ -4,8 +4,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/ashpect/revproxy/pkg/proxy"
+	"github.com/ashpect/revproxy/pkg/client"
 )
 
 func main() {
@@ -16,8 +18,19 @@ func main() {
 		Path:   "/api",
 	}
 	listenAddr := ":8000"
+	maxIdleConns := 100
+	maxIdleConnsPerHost := 100
+	idleConnTimeout := 10 * time.Second
 
-	proxyHandler := proxy.New(upstreamURL)
+	transport := client.NewTransport(
+		client.WithMaxIdleConns(maxIdleConns),
+		client.WithMaxIdleConnsPerHost(maxIdleConnsPerHost),
+		client.WithIdleConnTimeout(idleConnTimeout),
+	)
+	client := client.NewClient(
+		client.WithTransport(transport),
+	)
+	proxyHandler := proxy.New(upstreamURL, client)
 
 	// Initialize the server
 	server := &http.Server{

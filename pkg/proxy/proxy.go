@@ -7,12 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/ashpect/revproxy/pkg/utils"
 )
-
-const defaultClientTimeout = 30 * time.Second
 
 type Proxy struct {
 	upstream             *url.URL
@@ -34,12 +31,10 @@ func WithClient(client *http.Client) Option {
 	}
 }
 
-func New(upstream *url.URL, opts ...Option) *Proxy {
+func New(upstream *url.URL, client *http.Client, opts ...Option) *Proxy {
 	p := &Proxy{
 		upstream: upstream,
-		client: &http.Client{
-			Timeout: defaultClientTimeout,
-		},
+		client:   client,
 		preserveOriginalHost: false,
 	}
 
@@ -59,6 +54,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := p.client.Do(outReq)
+
+	// TODO : Better error handling, differenttiate between error types (eg: timeout, conn ref, etc)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		log.Printf("upstream request error: %v", err)
