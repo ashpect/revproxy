@@ -8,8 +8,8 @@
 - [] Better logging
 - [] Deployment configs
 - [] Caching
-    - []Implement a builder for cache
-    - []LRU impl + thread safety
+    - [x]Implement a builder for cache
+    - [x]LRU impl + thread safety
     - []Use LRU with TTL (Support TTL per entry)
     - []Server initiated cache-control 
         - []200 GET, cache it
