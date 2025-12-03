@@ -6,35 +6,34 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/ashpect/revproxy/pkg/utils"
 )
 
-type Proxy struct {
+type proxy struct {
 	upstream             *url.URL
 	client               *http.Client
 	preserveOriginalHost bool
 }
 
-type Option func(*Proxy)
+type ProxyOption func(*proxy)
 
-func WithPreserveOriginalHost(preserve bool) Option {
-	return func(p *Proxy) {
+func WithPreserveOriginalHost(preserve bool) ProxyOption {
+	return func(p *proxy) {
 		p.preserveOriginalHost = preserve
 	}
 }
 
-func WithClient(client *http.Client) Option {
-	return func(p *Proxy) {
+func WithClient(client *http.Client) ProxyOption {
+	return func(p *proxy) {
 		p.client = client
 	}
 }
 
-func New(upstream *url.URL, client *http.Client, opts ...Option) *Proxy {
-	p := &Proxy{
-		upstream: upstream,
-		client:   client,
+func NewProxy(upstream *url.URL, client *http.Client, opts ...ProxyOption) *proxy {
+	p := &proxy{
+		upstream:             upstream,
+		client:               client,
 		preserveOriginalHost: false,
 	}
 
@@ -45,7 +44,8 @@ func New(upstream *url.URL, client *http.Client, opts ...Option) *Proxy {
 	return p
 }
 
-func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outReq, err := p.buildUpstreamRequest(r)
 	if err != nil {
 		http.Error(w, "bad upstream request", http.StatusInternalServerError)
@@ -78,7 +78,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (p *Proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
+func (p *proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
 	// TESTING
 	utils.PrintRequest(req, "Initial request")
 
@@ -124,17 +124,4 @@ func (p *Proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
 	return outReq, nil
 }
 
-// singleJoiningSlash joins two paths with exactly one slash between them.
-func singleJoiningSlash(a, b string) string {
-	aslash := strings.HasSuffix(a, "/")
-	bslash := strings.HasPrefix(b, "/")
 
-	switch {
-	case aslash && bslash:
-		return a + b[1:]
-	case !aslash && !bslash:
-		return a + "/" + b
-	default:
-		return a + b
-	}
-}

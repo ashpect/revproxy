@@ -1,0 +1,7 @@
+listenaddr = ":8000"
+
+[proxy]
+upstreamURL = "http://localhost:9000/api"
+maxIdleConn = 100
+maxIdleConnPerHost = 100
+idleConnTimeout = "10s" # Note: in form of Go duration string (e.g., "10s", "5m", "1h") 

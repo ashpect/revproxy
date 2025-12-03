@@ -4,42 +4,49 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"time"
+	"fmt"
 
-	"github.com/ashpect/revproxy/pkg/proxy"
 	"github.com/ashpect/revproxy/pkg/client"
+	"github.com/ashpect/revproxy/pkg/config"
+	"github.com/ashpect/revproxy/pkg/proxy"
+
 )
 
 func main() {
-	// TODO : Read from config file
-	upstreamURL := &url.URL{
-		Scheme: "http",
-		Host:   "localhost:9000",
-		Path:   "/api",
-	}
-	listenAddr := ":8000"
-	maxIdleConns := 100
-	maxIdleConnsPerHost := 100
-	idleConnTimeout := 10 * time.Second
 
+	// Load configs
+	config.LoadConfig()
+	SystemCfg := config.SystemConfig
+	ProxyCfg := SystemCfg.Proxy
+
+	fmt.Println("SystemCfg", SystemCfg)
+
+	// Transport and client builders
 	transport := client.NewTransport(
-		client.WithMaxIdleConns(maxIdleConns),
-		client.WithMaxIdleConnsPerHost(maxIdleConnsPerHost),
-		client.WithIdleConnTimeout(idleConnTimeout),
+		client.WithMaxIdleConns(ProxyCfg.MaxIdleConns),
+		client.WithMaxIdleConnsPerHost(ProxyCfg.MaxIdleConnsPerHost),
+		client.WithIdleConnTimeout(ProxyCfg.IdleConnTimeout),
 	)
 	client := client.NewClient(
 		client.WithTransport(transport),
 	)
-	proxyHandler := proxy.New(upstreamURL, client)
+
+	upstreamURL, err := url.Parse(ProxyCfg.UpstreamURL)
+	if err != nil {
+		log.Fatalf("invalid upstream URL: %v", err)
+	}
+
+	// Proxyhandler builder
+	proxyHandler := proxy.NewProxy(upstreamURL, client)
 
 	// Initialize the server
 	server := &http.Server{
-		Addr:    listenAddr,
+		Addr:    SystemCfg.ListenAddr,
 		Handler: proxyHandler,
 		// TODO : Add other settings to the server.
 	}
 
-	log.Println("reverse proxy listening on", listenAddr, " forwarding to", upstreamURL.String())
+	log.Println("reverse proxy listening on", SystemCfg.ListenAddr, " forwarding to", upstreamURL.String())
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
