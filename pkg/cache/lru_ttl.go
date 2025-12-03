@@ -3,7 +3,6 @@ package cache
 import (
 	"container/list"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -85,7 +84,8 @@ func NewLRUTTL[K comparable, V any](capacity int, opts ...LRUOption[K, V]) (*LRU
 	}
 
 	if c.cleanupRunning {
-		c.StartCleanupDaemon(c.cleanupInterval)
+		c.cleanupRunning = false
+		c.StartCleanupDaemon()
 	}
 	return c, nil
 }
@@ -226,11 +226,64 @@ func (c *LRUWithTTL[K, V]) Close() {
 
 // StartCleanupDaemon starts a background goroutine that periodically evicts expired items.
 // interval must be > 0 seconds.
-func (c *LRUWithTTL[K, V]) StartCleanupDaemon(interval time.Duration) {
-	fmt.Println("Starting cleanup daemon")
+func (c *LRUWithTTL[K, V]) StartCleanupDaemon() {
+	if c.cleanupInterval <= 0 {
+		panic("cleanup interval must be > 0")
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// If already running, stop the existing one first
+	if c.cleanupRunning {
+		close(c.cleanupStop)
+		c.cleanupStop = make(chan struct{})
+	}
+
+	c.cleanupRunning = true
+
+	go func() {
+		ticker := time.NewTicker(c.cleanupInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				c.cleanupExpired()
+			case <-c.cleanupStop:
+				return
+			}
+		}
+	}()
 }
 
-// StopCleanupDaemon stops the janitor if running.
+// cleanupExpired iterates through the linked list and removes expired entries and also deletes the entry from the map.
+func (c *LRUWithTTL[K, V]) cleanupExpired() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	current := c.ll.Front()
+	for current != nil {
+		next := current.Next()
+		entry := current.Value.(*ttlEntry[K, V])
+
+		expired, err := c.isExpired(entry)
+		if err != nil || expired {
+			c.ll.Remove(current)
+			delete(c.items, entry.key)
+		}
+
+		current = next
+	}
+}
+
 func (c *LRUWithTTL[K, V]) StopCleanupDaemon() {
-	fmt.Println("Stopping cleanup daemon")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.cleanupRunning {
+		close(c.cleanupStop)
+		c.cleanupStop = make(chan struct{})
+		c.cleanupRunning = false
+	}
 }
