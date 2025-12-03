@@ -4,34 +4,35 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"fmt"
 
 	"github.com/ashpect/revproxy/pkg/client"
 	"github.com/ashpect/revproxy/pkg/config"
 	"github.com/ashpect/revproxy/pkg/proxy"
-
+	"github.com/ashpect/revproxy/pkg/utils"
 )
 
 func main() {
 
 	// Load configs
-	config.LoadConfig()
-	SystemCfg := config.SystemConfig
-	ProxyCfg := SystemCfg.Proxy
+	systemCfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("failed to load system config: %v", err)
+	}
+	proxyCfg := systemCfg.Proxy
 
-	fmt.Println("SystemCfg", SystemCfg)
+	utils.Debug("config: %+v", systemCfg)
 
 	// Transport and client builders
 	transport := client.NewTransport(
-		client.WithMaxIdleConns(ProxyCfg.MaxIdleConns),
-		client.WithMaxIdleConnsPerHost(ProxyCfg.MaxIdleConnsPerHost),
-		client.WithIdleConnTimeout(ProxyCfg.IdleConnTimeout),
+		client.WithMaxIdleConns(proxyCfg.MaxIdleConns),
+		client.WithMaxIdleConnsPerHost(proxyCfg.MaxIdleConnsPerHost),
+		client.WithIdleConnTimeout(proxyCfg.IdleConnTimeout),
 	)
 	client := client.NewClient(
 		client.WithTransport(transport),
 	)
 
-	upstreamURL, err := url.Parse(ProxyCfg.UpstreamURL)
+	upstreamURL, err := url.Parse(proxyCfg.UpstreamURL)
 	if err != nil {
 		log.Fatalf("invalid upstream URL: %v", err)
 	}
@@ -41,12 +42,11 @@ func main() {
 
 	// Initialize the server
 	server := &http.Server{
-		Addr:    SystemCfg.ListenAddr,
+		Addr:    systemCfg.ListenAddr,
 		Handler: proxyHandler,
-		// TODO : Add other settings to the server.
 	}
-
-	log.Println("reverse proxy listening on", SystemCfg.ListenAddr, " forwarding to", upstreamURL.String())
+	utils.Log("reverse proxy listening on %s forwarding to %s", systemCfg.ListenAddr, upstreamURL.String())
+	utils.Log("server starting...")
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)

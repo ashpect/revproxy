@@ -7,7 +7,7 @@ import (
 var hopByHopHeaders = []string{
 	"Connection",
 	"Proxy-Connection",
-	"Keep-Alive", 
+	"Keep-Alive",
 	"Proxy-Authenticate",
 	"Proxy-Authorization",
 	"Te",

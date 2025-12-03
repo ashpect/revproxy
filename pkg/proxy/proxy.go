@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/ashpect/revproxy/pkg/utils"
 )
@@ -44,7 +45,6 @@ func NewProxy(upstream *url.URL, client *http.Client, opts ...ProxyOption) *prox
 	return p
 }
 
-
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outReq, err := p.buildUpstreamRequest(r)
 	if err != nil {
@@ -71,11 +71,21 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	done := make(chan bool)
+	go func() {
+		select {
+		case <-time.Tick(10 * time.Millisecond):
+			w.(http.Flusher).Flush()
+		case <-done:
+			return
+		}
+	}()
 	w.WriteHeader(resp.StatusCode)
 
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		log.Printf("error copying response body: %v", err)
 	}
+	close(done)
 }
 
 func (p *proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
@@ -123,5 +133,3 @@ func (p *proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
 
 	return outReq, nil
 }
-
-
