@@ -1,5 +1,7 @@
 package cache
 
+import "time"
+
 type Cache[K comparable, V any] interface {
 	// Get returns the value for key and true if present (and not expired).
 	Get(key K) (V, bool)
@@ -20,8 +22,8 @@ type Cache[K comparable, V any] interface {
 	GetAll() map[K]V
 
 	// StartCleanupDaemon starts a background cleanup cronjob that periodically removes expired entries.
-	// IntervalSeconds > 0
-	StartCleanupDaemon(intervalSeconds int)
+	// interval must be > 0.
+	StartCleanupDaemon(interval time.Duration)
 
 	// StopCleanupDaemon stops the background cleanup cronjob if running.
 	StopCleanupDaemon()

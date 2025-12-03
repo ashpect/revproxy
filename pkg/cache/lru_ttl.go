@@ -104,26 +104,30 @@ func (c *LRUWithTTL[K, V]) isExpired(entry *ttlEntry[K, V]) (bool, error) {
 }
 
 // Get returns value if present and not expired; marks as most-recent.
-func (c *LRUWithTTL[K, V]) Get(key K) (value V, ok bool, err error) {
+func (c *LRUWithTTL[K, V]) Get(key K) (value V, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	var zero V
 	element, ok := c.items[key]
 	if !ok {
-		return zero, false, nil
+		return zero, false
 	}
 	entry := element.Value.(*ttlEntry[K, V])
-	if expired, err := c.isExpired(entry); err != nil || expired {
-		if err != nil {
-			return zero, false, err
-		}
+	expired, err := c.isExpired(entry)
+	if err != nil {
+		// Invalid TTL configuration - treat as expired and remove
 		c.ll.Remove(element)
 		delete(c.items, key)
-		return zero, false, nil
+		return zero, false
+	}
+	if expired {
+		c.ll.Remove(element)
+		delete(c.items, key)
+		return zero, false
 	}
 	c.ll.MoveToFront(element)
-	return entry.value, true, nil
+	return entry.value, true
 }
 
 // SetWithTTL using default TTL

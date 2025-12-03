@@ -36,9 +36,8 @@ func TestLRUTTL_GET_SET_DELETE(t *testing.T) {
 		ExpiresAt: time.Now().Add(10 * time.Second),
 	})
 
-	value, ok, err := cache.Get("key1")
+	value, ok := cache.Get("key1")
 
-	assert.NoError(t, err)
 	assert.True(t, ok)
 	assert.Equal(t, value.Status, 200)
 	assert.Equal(t, value.Header.Get("Content-Type"), "application/json")
@@ -47,8 +46,7 @@ func TestLRUTTL_GET_SET_DELETE(t *testing.T) {
 	assert.Equal(t, string(value.Body), "body")
 
 	cache.Delete("key1")
-	value, ok, err = cache.Get("key1")
-	assert.NoError(t, err)
+	value, ok = cache.Get("key1")
 	assert.False(t, ok)
 	assert.Equal(t, CachedResponse{}, value)
 }
@@ -80,11 +78,9 @@ func TestLRUTTL_eviction(t *testing.T) {
 		ExpiresAt: time.Now().Add(10 * time.Second),
 	})
 
-	_, ok, err := cache.Get("key1")
-	assert.NoError(t, err)
+	_, ok := cache.Get("key1")
 	assert.False(t, ok)
 
-	_, ok, err = cache.Get("key2")
-	assert.NoError(t, err)
+	_, ok = cache.Get("key2")
 	assert.True(t, ok)
 }

@@ -5,3 +5,8 @@ upstreamURL = "http://localhost:9000/"
 maxIdleConn = 100
 maxIdleConnPerHost = 100
 idleConnTimeout = "10s" # Note: in form of Go duration string (e.g., "10s", "5m", "1h") 
+
+[cache]
+enabled = true
+cacheCapacity = 2
+defaultTTL = 60 # in seconds

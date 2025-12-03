@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/ashpect/revproxy/pkg/cache"
 	"github.com/ashpect/revproxy/pkg/client"
 	"github.com/ashpect/revproxy/pkg/config"
 	"github.com/ashpect/revproxy/pkg/proxy"
@@ -18,8 +19,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load system config: %v", err)
 	}
-	proxyCfg := systemCfg.Proxy
-
+	proxyCfg := systemCfg.ProxyCfg
+	cacheCfg := systemCfg.CacheCfg
 	utils.Debug("config: %+v", systemCfg)
 
 	// Transport and client builders
@@ -37,8 +38,16 @@ func main() {
 		log.Fatalf("invalid upstream URL: %v", err)
 	}
 
+	cache, err := cache.NewLRUTTL(cacheCfg.CacheCapacity,
+		cache.WithDefaultTTL[string, *proxy.CachedResponse](cacheCfg.DefaultTTL),
+		cache.WithCleanupStart[string, *proxy.CachedResponse](true),
+	)
+	if err != nil {
+		log.Fatalf("failed to create cache: %v", err)
+	}
+
 	// Proxyhandler builder
-	proxyHandler := proxy.NewProxy(upstreamURL, client)
+	proxyHandler := proxy.NewProxy(upstreamURL, client, proxy.WithCache(cache))
 
 	// Initialize the server
 	server := &http.Server{

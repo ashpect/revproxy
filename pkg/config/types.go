@@ -11,5 +11,12 @@ type proxyCfg struct {
 
 type SystemCfg struct {
 	ListenAddr string   `toml:"listenaddr"`
-	Proxy      proxyCfg `toml:"proxy"`
+	ProxyCfg      proxyCfg `toml:"proxy"`
+	CacheCfg      cacheCfg `toml:"cache"`
+}
+
+type cacheCfg struct {
+	Enabled bool `toml:"enabled"`
+	CacheCapacity int `toml:"cacheCapacity"`
+	DefaultTTL int `toml:"defaultTTL"`
 }

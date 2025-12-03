@@ -10,10 +10,15 @@ import (
 
 var defaultSystemCfg = &SystemCfg{
 	ListenAddr: ":8000",
-	Proxy: proxyCfg{
+	ProxyCfg: proxyCfg{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     10 * time.Second,
+	},
+	CacheCfg: cacheCfg{
+		Enabled: true,
+		CacheCapacity: 100,
+		DefaultTTL: 60,
 	},
 }
 
