@@ -67,7 +67,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			utils.Debug("Cache hit for key: %s", uniqueKey)
 			utils.Debug("Serving cached response for key: %s", uniqueKey)
-			p.serveCachedResponse(w, cachedResp, uniqueKey)
+			p.serveCachedResponse(w, cachedResp)
 			utils.Debug("Cached response served for key: %s", uniqueKey)
 			return
 		}
@@ -82,7 +82,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := p.client.Do(outReq)
 
-	// TODO : Better error handling, differenttiate between error types (eg: timeout, conn ref, etc)
+	// TODO : Better error handling
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		log.Printf("upstream request error: %v", err)
@@ -108,18 +108,20 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create cached response and store in cache if cache is available and request is GET
+	ttl := parseMaxAge(resp.Header.Get("Cache-Control"))
 	if isCacheable && p.cache != nil {
-		now := time.Now()
-		expiresAt := calculateExpiresAt(resp, now)
 		cachedResp := &CachedResponse{
-			Status:    resp.StatusCode,
-			Header:    resp.Header.Clone(),
-			Body:      bodyBytes,
-			CachedAt:  now,
-			ExpiresAt: expiresAt,
+			Status:   resp.StatusCode,
+			Header:   resp.Header.Clone(),
+			Body:     bodyBytes,
+			CachedAt: time.Now(),
 		}
-		utils.Debug("Caching response for key: %s", uniqueKey)
-		p.cache.Set(uniqueKey, cachedResp)
+		utils.Debug("Caching response for key: %s with ttl: %d", uniqueKey, ttl)
+		if ttl > 0 {
+			p.cache.SetWithTTL(uniqueKey, cachedResp, ttl)
+		} else {
+			p.cache.Set(uniqueKey, cachedResp) // use default TTL
+		}
 		utils.Debug("Cached response stored for key: %s", uniqueKey)
 	}
 
@@ -145,7 +147,7 @@ func (p *proxy) getUniqueReqKey(r *http.Request) string {
 	return r.URL.String()
 }
 
-func (p *proxy) serveCachedResponse(w http.ResponseWriter, cachedResp *CachedResponse, uniqueKey string) {
+func (p *proxy) serveCachedResponse(w http.ResponseWriter, cachedResp *CachedResponse) {
 	// Copy headers to response writer
 	for key, values := range cachedResp.Header {
 		for _, value := range values {
@@ -204,32 +206,6 @@ func (p *proxy) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
 	utils.PrintRequestWithMetadata(outReq, "Final request", p.upstream, p.preserveOriginalHost)
 
 	return outReq, nil
-}
-
-// calculateExpiresAt determines the expiration time based on Cache-Control headers,
-// Expires header, or falls back to a default TTL.
-func calculateExpiresAt(resp *http.Response, now time.Time) time.Time {
-	const defaultTTL = 60 * time.Second
-
-	// First, check Cache-Control header for max-age or s-maxage
-	cacheControl := resp.Header.Get("Cache-Control")
-	if cacheControl != "" {
-		if maxAge := parseMaxAge(cacheControl); maxAge > 0 {
-			return now.Add(time.Duration(maxAge) * time.Second)
-		}
-		// If Cache-Control has no-cache or no-store, don't cache (but we'll still set a default)
-		// This is handled by checking if max-age exists
-	}
-
-	// Second, check Expires header
-	if expiresStr := resp.Header.Get("Expires"); expiresStr != "" {
-		if expires, err := http.ParseTime(expiresStr); err == nil {
-			return expires
-		}
-	}
-
-	// Fall back to default TTL
-	return now.Add(defaultTTL)
 }
 
 // parseMaxAge extracts the max-age or s-maxage value from Cache-Control header.

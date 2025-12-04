@@ -6,9 +6,8 @@ import (
 )
 
 type CachedResponse struct {
-	Status    int
-	Header    http.Header
-	Body      []byte
-	CachedAt  time.Time
-	ExpiresAt time.Time
+	Status   int
+	Header   http.Header
+	Body     []byte
+	CachedAt time.Time
 }
