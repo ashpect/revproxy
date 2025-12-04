@@ -26,7 +26,7 @@ func NewClient(opts ...ClientOption) *http.Client {
 		Timeout:   defaultClientTimeout,
 		Transport: http.DefaultTransport,
 	}
-	
+
 	for _, opt := range opts {
 		opt(client)
 	}

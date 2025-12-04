@@ -67,7 +67,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			utils.Debug("Cache hit for key: %s", uniqueKey)
 			utils.Debug("Serving cached response for key: %s", uniqueKey)
-			p.serveCachedResponse(w, cachedResp)
+			p.serveCachedResponse(w, cachedResp, uniqueKey)
 			utils.Debug("Cached response served for key: %s", uniqueKey)
 			return
 		}
@@ -145,7 +145,7 @@ func (p *proxy) getUniqueReqKey(r *http.Request) string {
 	return r.URL.String()
 }
 
-func (p *proxy) serveCachedResponse(w http.ResponseWriter, cachedResp *CachedResponse) {
+func (p *proxy) serveCachedResponse(w http.ResponseWriter, cachedResp *CachedResponse, uniqueKey string) {
 	// Copy headers to response writer
 	for key, values := range cachedResp.Header {
 		for _, value := range values {

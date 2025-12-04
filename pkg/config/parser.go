@@ -16,9 +16,9 @@ var defaultSystemCfg = &SystemCfg{
 		IdleConnTimeout:     10 * time.Second,
 	},
 	CacheCfg: cacheCfg{
-		Enabled: true,
+		Enabled:       true,
 		CacheCapacity: 100,
-		DefaultTTL: 60,
+		DefaultTTL:    60,
 	},
 }
 

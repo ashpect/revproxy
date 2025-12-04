@@ -38,7 +38,9 @@ func main() {
 		log.Fatalf("invalid upstream URL: %v", err)
 	}
 
-	cache, err := cache.NewLRUTTL(cacheCfg.CacheCapacity,
+	// Cache builder
+	cache, err := cache.NewLRUTTL(
+		cache.WithCapacity[string, *proxy.CachedResponse](cacheCfg.CacheCapacity),
 		cache.WithDefaultTTL[string, *proxy.CachedResponse](cacheCfg.DefaultTTL),
 		cache.WithCleanupStart[string, *proxy.CachedResponse](true),
 	)
