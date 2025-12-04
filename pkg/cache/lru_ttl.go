@@ -2,13 +2,13 @@ package cache
 
 import (
 	"container/list"
-	"errors"
 	"sync"
 	"time"
 )
 
+const defaultCapacity = 10
 const defaultTTL = 10 * time.Minute
-const defaultCleanupInterval = 1 * time.Hour
+const defaultCleanupInterval = 10 * time.Millisecond
 
 // LRUOption is a functional option for building LRUTTL cache
 type LRUOption[K comparable, V any] func(*LRUWithTTL[K, V])
@@ -17,34 +17,47 @@ type LRUOption[K comparable, V any] func(*LRUWithTTL[K, V])
 type ttlEntry[K comparable, V any] struct {
 	key       K
 	value     V
-	createdAt time.Time
-	ttl       time.Duration
+	expiresAt time.Time
 }
 
 // LRU cache with TTL based cleanup
 type LRUWithTTL[K comparable, V any] struct {
-	mu              sync.Mutex
-	capacity        int
-	ll              *list.List
-	items           map[K]*list.Element
+	capacity int
+	mu       sync.RWMutex
+	ll       *list.List
+	items    map[K]*list.Element
+
 	defaultTTL      time.Duration
 	cleanupInterval time.Duration
-	cleanupStop     chan struct{}
-	cleanupRunning  bool
+
+	cleanupStop    chan struct{}
+	cleanupRunning bool
 }
 
-// WithDefaultTTL sets a default TTL (in seconds) used by Set(). if ttlSeconds <= 0 not allowed as it can result in a cache which keeps growing
-func WithDefaultTTL[K comparable, V any](ttlSeconds int) LRUOption[K, V] {
+// WithCapacity sets the capacity of the cache.
+func WithCapacity[K comparable, V any](capacity int) LRUOption[K, V] {
 	return func(c *LRUWithTTL[K, V]) {
-		if ttlSeconds > 0 {
-			c.defaultTTL = time.Duration(ttlSeconds) * time.Second
+		if capacity > 0 {
+			c.capacity = capacity
 		} else {
-			panic("default TTL must be > 0")
+			panic("capacity must be > 0")
 		}
 	}
 }
 
-// WithCleanupInterval configures automatic cleanup interval (seconds). intervalSeconds > 0 for TTL based cleanup
+// WithDefaultTTL sets a default TTL (SECONDS) used by Set().
+// DefaultTTL is used to evict in case upstream server response does not have a cache control header
+func WithDefaultTTL[K comparable, V any](ttlSeconds int) LRUOption[K, V] {
+	return func(c *LRUWithTTL[K, V]) {
+		if ttlSeconds >= 0 {
+			c.defaultTTL = time.Duration(ttlSeconds) * time.Second
+		} else {
+			panic("default TTL must be >= 0")
+		}
+	}
+}
+
+// WithCleanupInterval configures automatic cleanup interval (SECONDS). intervalSeconds > 0 for TTL based cleanup
 func WithCleanupInterval[K comparable, V any](intervalSeconds int) LRUOption[K, V] {
 	return func(c *LRUWithTTL[K, V]) {
 		if intervalSeconds > 0 {
@@ -62,17 +75,24 @@ func WithCleanupStart[K comparable, V any](cleanupRunning bool) LRUOption[K, V] 
 	}
 }
 
+// WithItemsMap configures to use shallow copy of cache from a given items map (use at your own caution)
+// TODO : Improve to handle edge cases like calling with capacity post this and also creating a linked list ?
+func WithItemsMap[K comparable, V any](itemsMap map[K]*list.Element) LRUOption[K, V] {
+	return func(c *LRUWithTTL[K, V]) {
+		for k, v := range itemsMap {
+			c.items[k] = v
+		}
+	}
+}
+
 // NewLRUTTL creates an LRU cache with TTL based cleanup.
 // Capacity must be > 0. Provide options to configure TTL and cleanup interval.
-func NewLRUTTL[K comparable, V any](capacity int, opts ...LRUOption[K, V]) (*LRUWithTTL[K, V], error) {
-	if capacity <= 0 {
-		return nil, errors.New("capacity must be > 0")
-	}
+func NewLRUTTL[K comparable, V any](opts ...LRUOption[K, V]) (*LRUWithTTL[K, V], error) {
 
 	c := &LRUWithTTL[K, V]{
-		capacity:        capacity,
+		capacity:        defaultCapacity,
 		ll:              list.New(),
-		items:           make(map[K]*list.Element, capacity),
+		items:           make(map[K]*list.Element, defaultCapacity),
 		defaultTTL:      defaultTTL,
 		cleanupInterval: defaultCleanupInterval,
 		cleanupStop:     make(chan struct{}),
@@ -84,26 +104,23 @@ func NewLRUTTL[K comparable, V any](capacity int, opts ...LRUOption[K, V]) (*LRU
 	}
 
 	if c.cleanupRunning {
-		c.cleanupRunning = false
 		c.StartCleanupDaemon()
 	}
 	return c, nil
 }
 
-// isExpired checks whether an entry is expired (considers per-entry ttl).
-func (c *LRUWithTTL[K, V]) isExpired(entry *ttlEntry[K, V]) (bool, error) {
-	var ttl time.Duration
-	if entry.ttl > 0 {
-		ttl = entry.ttl
-	} else if entry.ttl == -1 { // No expiry
-		return false, nil
-	} else {
-		return false, errors.New("ttl must be > 0 or -1 for no expiry")
-	}
-	return time.Since(entry.createdAt) > ttl, nil
+// CACHE METHODS
+
+// Len returns number of non-expired items.
+// Uses read lock since it only reads the map length
+func (c *LRUWithTTL[K, V]) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.items)
 }
 
-// Get returns value if present and not expired; marks as most-recent.
+// Get returns value if present and not expired
+// Marks the element as most-recent
 func (c *LRUWithTTL[K, V]) Get(key K) (value V, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -114,25 +131,39 @@ func (c *LRUWithTTL[K, V]) Get(key K) (value V, ok bool) {
 		return zero, false
 	}
 	entry := element.Value.(*ttlEntry[K, V])
-	expired, err := c.isExpired(entry)
-	if err != nil {
-		// Invalid TTL configuration - treat as expired and remove
+
+	if isExpired(entry) {
 		c.ll.Remove(element)
 		delete(c.items, key)
 		return zero, false
 	}
-	if expired {
-		c.ll.Remove(element)
-		delete(c.items, key)
-		return zero, false
-	}
+
 	c.ll.MoveToFront(element)
 	return entry.value, true
 }
 
-// SetWithTTL using default TTL
-func (c *LRUWithTTL[K, V]) Set(key K, value V) {
-	c.setWithTTLInternal(key, value, c.defaultTTL)
+// GetAll returns a shallow copy of the current contents.
+// Uses read lock since it only reads the map
+func (c *LRUWithTTL[K, V]) GetAll() map[K]V {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make(map[K]V, len(c.items))
+	for k, ele := range c.items {
+		out[k] = ele.Value.(*ttlEntry[K, V]).value
+	}
+	return out
+}
+
+// Helper functions for testing, just returns the value based on key without moving them at front
+func (c *LRUWithTTL[K, V]) Get_Exclusive(key K) (value V, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	element, ok := c.items[key]
+	if !ok {
+		var zero V
+		return zero, false
+	}
+	return element.Value.(*ttlEntry[K, V]).value, true
 }
 
 // Delete removes the key from the cache (both the linked list node and the items map).
@@ -147,31 +178,34 @@ func (c *LRUWithTTL[K, V]) Delete(key K) {
 	delete(c.items, key)
 }
 
+// SetWithTTL using default TTL if expiresAt is not set
+func (c *LRUWithTTL[K, V]) Set(key K, value V) {
+	c.setWithTTLInternal(key, value, time.Now().Add(c.defaultTTL))
+}
+
 // SetWithTTL stores value with a specific ttlSeconds
-// ttlSeconds = -1 explicitly means no expiry
+// ttlSeconds = 0 explicitly means no expiry
 func (c *LRUWithTTL[K, V]) SetWithTTL(key K, value V, ttlSeconds int) {
-	var ttl time.Duration
 	if ttlSeconds > 0 {
-		ttl = time.Duration(ttlSeconds) * time.Second
-	} else if ttlSeconds < 0 {
-		ttl = time.Duration(-1) * time.Second // -1 to represent no expiry
+		expiresAt := time.Now().Add(time.Duration(ttlSeconds) * time.Second)
+		c.setWithTTLInternal(key, value, expiresAt)
+	} else if ttlSeconds == 0 { // no expiry
+		c.setWithTTLInternal(key, value, time.Time{})
 	} else {
-		panic("ttlSeconds must be > 0 or -1 for no expiry")
+		panic("ttlSeconds must be >= 0")
 	}
-	c.setWithTTLInternal(key, value, ttl)
 }
 
 // Actual setting
-func (c *LRUWithTTL[K, V]) setWithTTLInternal(key K, value V, ttl time.Duration) {
+func (c *LRUWithTTL[K, V]) setWithTTLInternal(key K, value V, expiresAt time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// update existing
+	// update if it's existing
 	if element, ok := c.items[key]; ok {
 		entry := element.Value.(*ttlEntry[K, V])
 		entry.value = value
-		entry.createdAt = time.Now()
-		entry.ttl = ttl
+		entry.expiresAt = expiresAt
 		c.ll.MoveToFront(element)
 		return
 	}
@@ -191,33 +225,21 @@ func (c *LRUWithTTL[K, V]) setWithTTLInternal(key K, value V, ttl time.Duration)
 	entry := &ttlEntry[K, V]{
 		key:       key,
 		value:     value,
-		createdAt: time.Now(),
-		ttl:       ttl,
+		expiresAt: expiresAt,
 	}
 	element := c.ll.PushFront(entry)
 	c.items[key] = element
-
 }
 
-// Len returns number of non-expired items.
-func (c *LRUWithTTL[K, V]) Len() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.items)
-}
-
-// GetAll returns a shallow copy of the current contents.
-func (c *LRUWithTTL[K, V]) GetAll() map[K]V {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make(map[K]V, len(c.items))
-	for k, ele := range c.items {
-		out[k] = ele.Value.(*ttlEntry[K, V]).value
+// isExpired checks whether an entry is expired. (expirytime - currenttime)
+func isExpired[K comparable, V any](entry *ttlEntry[K, V]) bool {
+	if entry.expiresAt.IsZero() {
+		return false // zero time means no expiry
 	}
-	return out
+	return time.Since(entry.expiresAt) > 0
 }
 
-// CRONJOB - todo
+// CRONJOB
 
 // Close stops cleanup cronjob if running.
 func (c *LRUWithTTL[K, V]) Close() {
@@ -233,14 +255,6 @@ func (c *LRUWithTTL[K, V]) StartCleanupDaemon() {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	// If already running, stop the existing one first
-	if c.cleanupRunning {
-		close(c.cleanupStop)
-		c.cleanupStop = make(chan struct{})
-	}
-
-	c.cleanupRunning = true
 
 	go func() {
 		ticker := time.NewTicker(c.cleanupInterval)
@@ -267,8 +281,8 @@ func (c *LRUWithTTL[K, V]) cleanupExpired() {
 		next := current.Next()
 		entry := current.Value.(*ttlEntry[K, V])
 
-		expired, err := c.isExpired(entry)
-		if err != nil || expired {
+		expired := isExpired(entry)
+		if expired {
 			c.ll.Remove(current)
 			delete(c.items, entry.key)
 		}

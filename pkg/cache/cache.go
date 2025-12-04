@@ -30,3 +30,5 @@ type Cache[K comparable, V any] interface {
 	// Close stops cleanup cronjob and releases resources. After Close the cache can still be used, but TTL cronjob won't run.
 	Close()
 }
+
+// TODO : Split the interface into smaller composable interfaces to actual make use of cache builders
