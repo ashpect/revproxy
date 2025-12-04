@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/ashpect/revproxy/pkg/utils"
 )
 
 func main() {
@@ -17,10 +19,12 @@ func main() {
 }
 
 func basicResponse(w http.ResponseWriter, r *http.Request) {
+	utils.PrintRequest(r, "=== Basic Response Request ===")
 	w.Write([]byte("Hello"))
 }
 
 func streamResponse(w http.ResponseWriter, r *http.Request) {
+	utils.PrintRequest(r, "=== Stream Response Request ===")
 	w.WriteHeader(http.StatusOK)
 
 	for i := 0; i < 2; i++ {
